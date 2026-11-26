@@ -28,21 +28,26 @@ public final class CommandRegistration {
                 .then(argument("item", IdentifierArgument.id())
                         .executes(context -> exportItem(context.getSource(), IdentifierArgument.getId(context, "item")))));
 
+        var scaleNode = argument("scale", IntegerArgumentType.integer(1, 10))
+                .executes(context -> exportRecipe(context.getSource(),
+                        IdentifierArgument.getId(context, "item"), methodArgument(context, "method"),
+                        IntegerArgumentType.getInteger(context, "index"),
+                        IntegerArgumentType.getInteger(context, "scale")));
+
+        var indexNode = argument("index", IntegerArgumentType.integer(1))
+                .executes(context -> exportRecipe(context.getSource(),
+                        IdentifierArgument.getId(context, "item"), methodArgument(context, "method"),
+                        IntegerArgumentType.getInteger(context, "index"), 0))
+                .then(scaleNode);
+
+        var methodNode = argument("method", IdentifierArgument.id())
+                .suggests((context, builder) -> suggestMethods(builder))
+                .executes(context -> exportRecipe(context.getSource(),
+                        IdentifierArgument.getId(context, "item"), methodArgument(context, "method"), 1, 0))
+                .then(indexNode);
+
         event.getDispatcher().register(literal("recipeexport")
-                .then(argument("item", IdentifierArgument.id())
-                        .then(argument("method", IdentifierArgument.id())
-                                .suggests((context, builder) -> suggestMethods(builder))
-                                .executes(context -> exportRecipe(context.getSource(),
-                                        IdentifierArgument.getId(context, "item"), methodArgument(context, "method"), 1, 0))
-                                .then(argument("index", IntegerArgumentType.integer(1))
-                                        .executes(context -> exportRecipe(context.getSource(),
-                                                IdentifierArgument.getId(context, "item"), methodArgument(context, "method"),
-                                                IntegerArgumentType.getInteger(context, "index"), 0))
-                                        .then(argument("scale", IntegerArgumentType.integer(1, 10))
-                                                .executes(context -> exportRecipe(context.getSource(),
-                                                        IdentifierArgument.getId(context, "item"), methodArgument(context, "method"),
-                                                        IntegerArgumentType.getInteger(context, "index"),
-                                                        IntegerArgumentType.getInteger(context, "scale")))))));
+                .then(argument("item", IdentifierArgument.id()).then(methodNode)));
 
         event.getDispatcher().register(literal("itemexportcancel").executes(context -> {
             try {
