@@ -2,7 +2,6 @@ package com.ayden.itemexporter.client;
 
 import com.mojang.blaze3d.platform.NativeImage;
 import net.minecraft.client.Minecraft;
-import net.minecraft.util.ARGB;
 
 import java.awt.image.BufferedImage;
 
@@ -30,7 +29,8 @@ public final class ImageCapture {
         BufferedImage cropped = new BufferedImage(cropWidth, cropHeight, BufferedImage.TYPE_INT_ARGB);
         for (int y = 0; y < cropHeight; y++) {
             for (int x = 0; x < cropWidth; x++) {
-                cropped.setRGB(x, y, ARGB.fromABGR(source.getPixel(left + x, top + y)));
+                // NativeImage.getPixel() already converts its internal ABGR data to ARGB.
+                cropped.setRGB(x, y, source.getPixel(left + x, top + y));
             }
         }
         removeKeyColor(cropped, screen.keyColor());
