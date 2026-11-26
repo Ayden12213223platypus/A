@@ -39,7 +39,7 @@ neoForge {
 dependencies {
     compileOnly "mezz.jei:jei-${project.minecraft_version}-common-api:${project.jei_version}"
     compileOnly "mezz.jei:jei-${project.minecraft_version}-neoforge-api:${project.jei_version}"
-    localRuntime "mezz.jei:jei-${project.minecraft_version}-neoforge:${project.jei_version}"
+    runtimeOnly "mezz.jei:jei-${project.minecraft_version}-neoforge:${project.jei_version}"
 }
 
 tasks.withType(org.gradle.api.tasks.compile.JavaCompile).configureEach {
