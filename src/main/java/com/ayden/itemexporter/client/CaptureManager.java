@@ -14,22 +14,20 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 public final class CaptureManager {
-    private static final int TICKS_PER_SECOND = 20;
-    private static final int STATIC_SETTLE_TICKS = TICKS_PER_SECOND * 3;
-    private static final int MAX_AUTO_CAPTURE_TICKS = TICKS_PER_SECOND * 15;
+    private static final long STATIC_SETTLE_NANOS = 3_000_000_000L;
+    private static final long MAX_AUTO_CAPTURE_NANOS = 15_000_000_000L;
 
     private static CaptureScreen activeScreen;
     private static final List<ImageExporter.GifFrame> frames = new ArrayList<>();
     private static String outputBaseName;
     private static boolean recipeCapture;
     private static boolean active;
-    private static boolean frameRequested;
     private static boolean screenshotPending;
     private static long captureSession;
+    private static long captureStartedAtNanos;
     private static BufferedImage firstItemFrame;
     private static BufferedImage lastItemFrame;
-    private static int lastItemFrameTicks;
-    private static int capturedItemTicks;
+    private static long lastItemFrameStartedAtNanos;
     private static boolean itemAnimationChanged;
 
     private CaptureManager() {}
@@ -54,12 +52,11 @@ public final class CaptureManager {
         frames.clear();
         outputBaseName = sanitize(baseName);
         recipeCapture = isRecipe;
-        frameRequested = false;
         screenshotPending = false;
         firstItemFrame = null;
         lastItemFrame = null;
-        lastItemFrameTicks = 0;
-        capturedItemTicks = 0;
+        lastItemFrameStartedAtNanos = 0L;
+        captureStartedAtNanos = System.nanoTime();
         itemAnimationChanged = false;
         active = true;
         minecraft.gui.pushScreenLayer(screen);
@@ -73,12 +70,12 @@ public final class CaptureManager {
     public static void onClientTick(ClientTickEvent.Post event) {
         if (!active) return;
         if (activeScreen != null && activeScreen.recipeLayout() != null) activeScreen.recipeLayout().tick();
-        frameRequested = true;
     }
 
     public static void onRenderFramePost(RenderFrameEvent.Post event) {
-        if (!active || !frameRequested || screenshotPending) return;
-        frameRequested = false;
+        // Capture every rendered frame, not just one frame per game tick. This is
+        // important for animated item models that interpolate their scale each frame.
+        if (!active || screenshotPending) return;
         screenshotPending = true;
         Minecraft minecraft = Minecraft.getInstance();
         long session = captureSession;
@@ -108,7 +105,7 @@ public final class CaptureManager {
                 frames.add(new ImageExporter.GifFrame(frame, 5));
                 finish(minecraft, false, false);
             } else {
-                acceptItemFrame(minecraft, frame);
+                acceptItemFrame(minecraft, frame, System.nanoTime());
             }
         } catch (Exception exception) {
             abort(minecraft, "Image capture failed: " + exception.getMessage());
@@ -118,39 +115,52 @@ public final class CaptureManager {
         }
     }
 
-    private static void acceptItemFrame(Minecraft minecraft, BufferedImage frame) {
-        capturedItemTicks++;
+    private static void acceptItemFrame(Minecraft minecraft, BufferedImage frame, long capturedAtNanos) {
         if (firstItemFrame == null) {
             firstItemFrame = frame;
             lastItemFrame = frame;
-            lastItemFrameTicks = 1;
+            lastItemFrameStartedAtNanos = capturedAtNanos;
             return;
         }
+
+        long elapsedNanos = Math.max(0L, capturedAtNanos - captureStartedAtNanos);
         if (samePixels(frame, lastItemFrame)) {
-            lastItemFrameTicks++;
-            if (!itemAnimationChanged && capturedItemTicks >= STATIC_SETTLE_TICKS) {
+            if (!itemAnimationChanged && elapsedNanos >= STATIC_SETTLE_NANOS) {
                 finishStaticItem(minecraft);
-            } else if (itemAnimationChanged && capturedItemTicks >= MAX_AUTO_CAPTURE_TICKS) {
-                frames.add(new ImageExporter.GifFrame(lastItemFrame, Math.max(1, lastItemFrameTicks * 5)));
+            } else if (itemAnimationChanged && elapsedNanos >= MAX_AUTO_CAPTURE_NANOS) {
+                frames.add(new ImageExporter.GifFrame(lastItemFrame,
+                        delayCentiseconds(lastItemFrameStartedAtNanos, capturedAtNanos)));
                 finish(minecraft, true, true);
             }
             return;
         }
+
         itemAnimationChanged = true;
         // Animated sprites can start on an arbitrary frame. Detect a loop when any
         // previously captured visual frame reappears, not only when the first frame does.
         if (hasSeenFrame(frame)) {
-            frames.add(new ImageExporter.GifFrame(lastItemFrame, Math.max(1, lastItemFrameTicks * 5)));
+            frames.add(new ImageExporter.GifFrame(lastItemFrame,
+                    delayCentiseconds(lastItemFrameStartedAtNanos, capturedAtNanos)));
             finish(minecraft, true, false);
             return;
         }
-        frames.add(new ImageExporter.GifFrame(lastItemFrame, Math.max(1, lastItemFrameTicks * 5)));
+
+        frames.add(new ImageExporter.GifFrame(lastItemFrame,
+                delayCentiseconds(lastItemFrameStartedAtNanos, capturedAtNanos)));
         lastItemFrame = frame;
-        lastItemFrameTicks = 1;
-        if (capturedItemTicks >= MAX_AUTO_CAPTURE_TICKS) {
-            frames.add(new ImageExporter.GifFrame(lastItemFrame, 5));
+        lastItemFrameStartedAtNanos = capturedAtNanos;
+
+        if (elapsedNanos >= MAX_AUTO_CAPTURE_NANOS) {
+            frames.add(new ImageExporter.GifFrame(lastItemFrame,
+                    delayCentiseconds(lastItemFrameStartedAtNanos, capturedAtNanos)));
             finish(minecraft, true, true);
         }
+    }
+
+    private static int delayCentiseconds(long frameStartedAtNanos, long frameEndedAtNanos) {
+        long elapsed = Math.max(1L, frameEndedAtNanos - frameStartedAtNanos);
+        long centiseconds = Math.max(1L, Math.round(elapsed / 10_000_000.0));
+        return (int) Math.min(65_535L, centiseconds);
     }
 
     private static boolean hasSeenFrame(BufferedImage frame) {
@@ -177,7 +187,6 @@ public final class CaptureManager {
 
     private static void finish(Minecraft minecraft, boolean writeGif, boolean incompleteLoop) {
         active = false;
-        frameRequested = false;
         screenshotPending = false;
         if (minecraft.gui.screen() == activeScreen) minecraft.gui.popScreenLayer();
         List<ImageExporter.GifFrame> completedFrames = List.copyOf(frames);
@@ -199,7 +208,7 @@ public final class CaptureManager {
                     if (minecraft.player != null) {
                         minecraft.player.sendSystemMessage(Component.literal("Export saved: " + output.toAbsolutePath()));
                         if (incompleteLoop) minecraft.player.sendSystemMessage(Component.literal(
-                                "The animation did not visibly return to its first frame before the 60-second safety limit; this GIF may not be a seamless loop."));
+                                "The animation did not visibly repeat a captured frame before the 15-second safety limit; this GIF may not be a seamless loop."));
                     }
                 });
             } catch (Exception exception) {
@@ -213,7 +222,6 @@ public final class CaptureManager {
 
     private static void abort(Minecraft minecraft, String message) {
         active = false;
-        frameRequested = false;
         screenshotPending = false;
         frames.clear();
         if (minecraft.gui.screen() == activeScreen) minecraft.gui.popScreenLayer();
