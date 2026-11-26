@@ -16,7 +16,7 @@ import java.util.concurrent.CompletableFuture;
 public final class CaptureManager {
     private static final int TICKS_PER_SECOND = 20;
     private static final int STATIC_SETTLE_TICKS = TICKS_PER_SECOND * 3;
-    private static final int MAX_AUTO_CAPTURE_TICKS = TICKS_PER_SECOND * 60;
+    private static final int MAX_AUTO_CAPTURE_TICKS = TICKS_PER_SECOND * 15;
 
     private static CaptureScreen activeScreen;
     private static final List<ImageExporter.GifFrame> frames = new ArrayList<>();
@@ -137,7 +137,9 @@ public final class CaptureManager {
             return;
         }
         itemAnimationChanged = true;
-        if (samePixels(frame, firstItemFrame)) {
+        // Animated sprites can start on an arbitrary frame. Detect a loop when any
+        // previously captured visual frame reappears, not only when the first frame does.
+        if (hasSeenFrame(frame)) {
             frames.add(new ImageExporter.GifFrame(lastItemFrame, Math.max(1, lastItemFrameTicks * 5)));
             finish(minecraft, true, false);
             return;
@@ -149,6 +151,13 @@ public final class CaptureManager {
             frames.add(new ImageExporter.GifFrame(lastItemFrame, 5));
             finish(minecraft, true, true);
         }
+    }
+
+    private static boolean hasSeenFrame(BufferedImage frame) {
+        for (ImageExporter.GifFrame captured : frames) {
+            if (samePixels(frame, captured.image())) return true;
+        }
+        return firstItemFrame != null && samePixels(frame, firstItemFrame);
     }
 
     private static boolean samePixels(BufferedImage first, BufferedImage second) {
