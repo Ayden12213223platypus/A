@@ -76,22 +76,24 @@ public final class CaptureScreen extends Screen {
     }
 
     @Override
-    public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
-        Minecraft minecraft = Minecraft.getInstance();
-        int guiWidth = minecraft.getWindow().getGuiScaledWidth();
-        int guiHeight = minecraft.getWindow().getGuiScaledHeight();
-        canvasX = (guiWidth - canvasWidth) / 2;
-        canvasY = (guiHeight - canvasHeight) / 2;
+    public void extractBackground(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+        // Replace Screen's normal world/menu background for this screen with a solid key.
+        // This is extracted in the background pass so it is guaranteed to sit behind the
+        // deferred item/recipe render states.
+        canvasX = (graphics.guiWidth() - canvasWidth) / 2;
+        canvasY = (graphics.guiHeight() - canvasHeight) / 2;
+        graphics.fill(canvasX, canvasY, canvasX + canvasWidth, canvasY + canvasHeight, keyColor);
+    }
 
+    @Override
+    public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
         if (itemStack != null) {
-            graphics.fill(canvasX, canvasY, canvasX + canvasWidth, canvasY + canvasHeight, keyColor);
             graphics.item(itemStack, canvasX + innerPadding, canvasY + innerPadding, 0);
         } else if (recipeLayout != null) {
             graphics.pose().pushMatrix();
             try {
                 graphics.pose().translate(canvasX, canvasY);
                 graphics.pose().scale(recipeRenderScale, recipeRenderScale);
-                graphics.fill(0, 0, logicalCanvasWidth, logicalCanvasHeight, keyColor);
                 recipeLayout.setPosition(innerPadding, innerPadding);
                 recipeLayout.drawRecipe(graphics, -1000, -1000);
             } finally {
